@@ -431,7 +431,9 @@ def extraer_placas(texto, paginas_dict):
             re.fullmatch(r'^[A-Z]{4}\d{2,3}$', placa),
             re.fullmatch(r'^\d{2,3}[A-Z]{3,4}$', placa),
             re.fullmatch(r'^[A-Z]\d{2}[A-Z]{3}$', placa),
-            re.fullmatch(r'^[A-Z]{2}\d{2}[A-Z]{2}$', placa)
+            re.fullmatch(r'^[A-Z]{2}\d{2}[A-Z]{2}$', placa),
+            re.fullmatch(r'^[A-Z]{3}\d{3}[A-Z]$', placa),   
+            re.fullmatch(r'^\d{4}[A-Z]\d$', placa)
         ])
 
     def formatear_placa(placa):
