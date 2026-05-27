@@ -71,21 +71,34 @@ def extraer_numero_poliza_qualitas(texto):
 
 def extraer_rfc_mas_repetido(texto: str) -> str:
     texto_upper = texto.upper()
+
+    # RFC estándar + RFC con guiones tipo SLE-120202-M92
     rfc_regex = r'\b[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{0,3}\b'
+    rfc_guiones_regex = r'\b[A-Z&Ñ]{2,4}-\d{6}-[A-Z0-9]{1,3}\b'
+
     rfcs_encontrados = re.findall(rfc_regex, texto_upper)
+    rfcs_con_guiones = re.findall(rfc_guiones_regex, texto_upper)
 
     exclusiones_motor = [
         r'\bV[68]\b', r'\bI4\b', r'\bH6\b', r'\b2ZRFE\b', r'\b1\.6L\b',
         r'\b2\.0L\b', r'\bTSI\b', r'\bTDI\b', r'\bDOHC\b', r'\bSOHC\b',
         r'\bTURBO\b', r'\bHYBRID\b', r'\bELECTRIC\b'
     ]
-    rfcs_filtrados = [
-        rfc for rfc in rfcs_encontrados
-        if not any(re.fullmatch(pat, rfc) for pat in exclusiones_motor)
-    ]
+    rfcs_filtrados = []
+    for rfc in rfcs_encontrados:
+        if not any(re.fullmatch(pat, rfc) for pat in exclusiones_motor):
+            rfcs_filtrados.append(rfc)
+
+    # Si encontró RFC con guiones, devolverlo directo (es único y específico)
+    if rfcs_con_guiones:
+        bloques_asegurado = re.findall(r'INFORMACION DEL ASEGURADO.*?(?:\n\n|\Z)', texto_upper, re.DOTALL)
+        for rfc in rfcs_con_guiones:
+            if any(rfc in bloque for bloque in bloques_asegurado):
+                return rfc
+        return rfcs_con_guiones[0]
 
     if not rfcs_filtrados:
-        return ""
+        return "No se encontraron RFCs válidos"
 
     rfcs_estandar = [rfc for rfc in rfcs_filtrados if len(rfc) in (12, 13)]
     rfcs_truncados = [rfc for rfc in rfcs_filtrados if len(rfc) == 10]
@@ -101,9 +114,11 @@ def extraer_rfc_mas_repetido(texto: str) -> str:
 
     if conteo_estandar:
         return conteo_estandar.most_common(1)[0][0]
+
     if conteo_truncado:
         return conteo_truncado.most_common(1)[0][0]
-    return ""
+
+    return "No se encontraron RFCs válidos"
 
 
 def extraer_prima_neta(texto: str) -> str:
@@ -380,8 +395,28 @@ def extraer_moneda(texto: str) -> str:
 def extraer_motor(texto: str) -> str:
     texto_upper = texto.upper()
     lineas = texto_upper.splitlines()
-    regex_motor = r'\b[A-Z0-9]{9,13}\b'
-    frases_validas = ["HECHO EN", "FABRICADO EN", "ENSAMBLADO EN"]
+
+    regex_motor = r'\b[A-Z0-9]{6,15}\b'
+
+    frases_validas = [
+        "HECHO EN",
+        "FABRICADO EN",
+        "ENSAMBLADO EN"
+    ]
+
+    palabras_descartadas = {
+        "COLONIA", "ESTADO", "MUNICIPIO", "CIUDAD", "MEXICO",
+        "NORMAL", "PARTICULAR", "VIGENCIA", "PLACAS",
+        "MODELO", "COLOR", "SERIE", "MOTOR", "OCUPANTES",
+        "SERVICIO", "MOVIMIENTO", "TRAMITE", "ALTA",
+        "CONTADO", "SEMESTRAL", "TRIMESTRAL", "MENSUAL",
+        "ANUAL", "IMPORTE", "SUBTOTAL", "MONEDA",
+        "PESOS", "AMPLIA", "LIMITADA",
+    }
+
+    # -------------------------
+    # LOGICA PRINCIPAL
+    # -------------------------
 
     for i, linea in enumerate(lineas):
         if "MOTOR" in linea:
@@ -389,12 +424,44 @@ def extraer_motor(texto: str) -> str:
                 idx = i + desplazamiento
                 if idx < len(lineas):
                     valor = lineas[idx].strip()
-                    if re.search(regex_motor, valor):
-                        return valor
                     if any(frase in valor for frase in frases_validas):
                         return valor.title()
+                    tokens = re.findall(regex_motor, valor)
+                    for token in tokens:
+                        if token not in palabras_descartadas:
+                            if re.search(r'\d', token):
+                                return token
             break
-    return "S/N"
+
+    # -------------------------
+    # FALLBACK NUEVO
+    # -------------------------
+
+    candidatos = []
+    for i, linea in enumerate(lineas):
+        if re.search(r'^MOTOR\s*[:\-]?\s*$', linea.strip(), re.IGNORECASE):
+            ventana = lineas[i:i + 15]
+            for valor in ventana:
+                valor = valor.strip().upper()
+                if not valor:
+                    continue
+                if valor in palabras_descartadas:
+                    continue
+                if any(frase in valor for frase in frases_validas):
+                    candidatos.append(valor.title())
+                    continue
+                tokens = re.findall(regex_motor, valor)
+                for token in tokens:
+                    if (
+                        token not in palabras_descartadas
+                        and re.search(r'\d', token)
+                        and re.search(r'[A-Z]', token)
+                        and len(token) >= 8
+                    ):
+                        candidatos.append(token)
+    if candidatos:
+        return sorted(candidatos, key=len, reverse=True)[0]
+    return ""
 
 
 def extraer_serie(texto: str) -> str:
@@ -432,19 +499,27 @@ def extraer_placas(texto, paginas_dict):
             re.fullmatch(r'^\d{2,3}[A-Z]{3,4}$', placa),
             re.fullmatch(r'^[A-Z]\d{2}[A-Z]{3}$', placa),
             re.fullmatch(r'^[A-Z]{2}\d{2}[A-Z]{2}$', placa),
-            re.fullmatch(r'^[A-Z]{3}\d{3}[A-Z]$', placa),   
-            re.fullmatch(r'^\d{4}[A-Z]\d$', placa)
+            re.fullmatch(r'^[A-Z]{3}\d{3}[A-Z]$', placa),
+            re.fullmatch(r'^\d{4}[A-Z]\d$', placa),
+            re.fullmatch(r'^\d{2}[A-Z]\d{3}$', placa),   # 08G654
         ])
 
     def formatear_placa(placa):
         if not placa:
             return ""
-        placa = re.sub(r'[^A-Z0-9]', '', placa.upper())
-        if len(placa) == 6:
-            return f"{placa[:3]}-{placa[3:]}"
-        elif len(placa) == 7:
-            return f"{placa[:3]}-{placa[3:]}" if placa[3].isdigit() else f"{placa[:4]}-{placa[4:]}"
-        return placa
+        placa_upper = placa.strip().upper()
+        if re.fullmatch(r'S/?N', placa_upper):
+            return placa_upper          # SN o S/N → tal cual
+        if re.fullmatch(r'TR[AÁ]MITE', placa_upper):
+            return "TRÁMITE"
+        if re.search(r'^HECHO\s+EN\s+', placa_upper):
+            return placa_upper
+        placa_clean = re.sub(r'[^A-Z0-9]', '', placa_upper)
+        if len(placa_clean) == 6:
+            return f"{placa_clean[:3]}-{placa_clean[3:]}"
+        elif len(placa_clean) == 7:
+            return f"{placa_clean[:3]}-{placa_clean[3:]}" if placa_clean[3].isdigit() else f"{placa_clean[:4]}-{placa_clean[4:]}"
+        return placa_clean or placa.strip()
 
     def buscar_desde_patrones(texto):
         patrones = [
@@ -469,6 +544,8 @@ def extraer_placas(texto, paginas_dict):
                 for j in range(0, 11):
                     if i + j < len(lineas):
                         posible = lineas[i + j].strip()
+                        if re.fullmatch(r'S/?N', posible.upper()):
+                            return "S/N"
                         if validar_placa(posible):
                             return formatear_placa(posible)
         return None
@@ -508,12 +585,15 @@ def extraer_placas(texto, paginas_dict):
         if 'placas:' in linea.lower() or 'placa:' in linea.lower():
             partes = linea.split(':', 1)
             if len(partes) > 1:
-                posible = partes[1].strip()
-                if posible.lower() == "none" or posible == "":
+                posible = partes[1].strip().upper()
+                if not posible or posible.lower() == "none":
                     return ""
+                # SN o S/N → normalizar a S/N
+                if re.fullmatch(r'S/?N', posible):
+                    return "S/N"
                 return posible
             break
-    return ""
+    return ""  # ← vacío, no "No encontrado"
 
 
 def extraer_cp(texto):
@@ -599,13 +679,35 @@ def extraer_municipio(texto):
 
 def extraer_tipo_vehiculo(texto):
     lineas = texto.splitlines()
+
     patrones = [
         r'^Autom[oó]viles\s+Nacionales',
         r'^Autom[oó]viles\s+Importados',
+        r'^Autom[oó]viles\s+Especiales',       # NUEVO
+        r'^Camiones\s+Particulares',            # NUEVO
+        r'^Camiones\s+Importados',              # NUEVO
+        r'^Camiones\s+Nacionales',              # NUEVO
+        r'^Camiones\s+Especiales',              # NUEVO
         r'^Camiones-Panel',
         r'^Motocicletas',
         r'^Tractocami[oó]n'
     ]
+
+    for i, linea in enumerate(lineas):
+        if re.search(r'DESCRIPCIÓN DEL VEHÍCULO ASEGURADO', linea, re.IGNORECASE):
+            for j in range(0, 11):
+                if i + j < len(lineas):
+                    posible = lineas[i + j].strip()
+                    for patron in patrones:
+                        if re.match(patron, posible, re.IGNORECASE):
+                            return posible
+                    match = re.search(r'Tipo\s*:\s*(.+)', lineas[i + j], re.IGNORECASE)
+                    if match:
+                        posible = match.group(1).strip()
+                        for patron in patrones:
+                            if re.match(patron, posible, re.IGNORECASE):
+                                return posible
+            break
 
     encontrados = []
     for i, linea in enumerate(lineas):
@@ -626,6 +728,7 @@ def extraer_tipo_vehiculo(texto):
     if encontrados:
         contador = Counter(encontrados)
         return contador.most_common(1)[0][0]
+
     return ""
 
 

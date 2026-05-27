@@ -69,7 +69,6 @@ def procesar_pdf(ruta_pdf: str, nombre_archivo: str) -> dict:
         "colonia": extraer_colonia(texto),
         "rfcAsegurado": extraer_rfc_mas_repetido(texto),
         "descripcionVehiculo": extraer_descripcion_vehiculo(texto),
-        "nacionalImportado": extraer_tipo_vehiculo(texto),
         "modelo": "",
         "placas": extraer_placas(texto, paginas_dict),
         "serie": extraer_serie(texto),
