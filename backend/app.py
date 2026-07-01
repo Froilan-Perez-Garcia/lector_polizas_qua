@@ -1,16 +1,19 @@
+from fastapi import FastAPI, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+import logging
 import os
 import tempfile
-from typing import List
-from io import BytesIO
 
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-
-import pandas as pd
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from poliza_qualitas import (
     leer_pdf_completo,
+    extraer_direccion,
+    extraer_tipo_vehiculo,
+    extraer_descripcion_vehiculo,
+    extraer_colonia,
+    extraer_municipio,
     es_poliza_auto_qualitas,
     extraer_tipo_poliza,
     extraer_numero_poliza_qualitas,
@@ -29,14 +32,33 @@ from poliza_qualitas import (
     extraer_serie,
     extraer_placas,
     extraer_cp,
-    extraer_direccion,
-    extraer_tipo_vehiculo,
-    extraer_descripcion_vehiculo,
-    extraer_colonia,
-    extraer_municipio,
 )
 
-app = FastAPI(title="Extractor de Polizas Qualitas")
+from poliza_gnp import (
+    leer_pdf_completo as leer_pdf_gnp,
+    es_poliza_auto_gnp,
+    extraer_tipo_poliza as gnp_tipo_poliza,
+    extraer_nombre_cliente as gnp_nombre_cliente,
+    extraer_renovacion,
+    extraer_rfc,
+    extraer_numero_poliza,
+    extraer_vigencia,
+    extraer_prima_neta as gnp_prima_neta,
+    extraer_derecho_poliza,
+    extraer_iva as gnp_iva,
+    extraer_importe_pagar,
+    extraer_uso,
+    extraer_recargo_fraccionado,
+    extraer_descripcion,
+    extraer_serie as gnp_serie,
+    extraer_modelo,
+    extraer_placas as gnp_placas,
+    extraer_direccion as gnp_direccion,
+    extraer_clave_agente,
+    extraer_nombre_agente,
+)
+
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,107 +68,150 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-def procesar_pdf(ruta_pdf: str, nombre_archivo: str) -> dict:
-    texto, paginas_dict = leer_pdf_completo(ruta_pdf)
-
-    if not es_poliza_auto_qualitas(texto):
-        return {
-            "archivo": nombre_archivo,
-            "mensaje": "No es una poliza de auto Qualitas",
-        }
-
-    vigencia = extraer_vigencia_por_frecuencia(texto)
-
-    return {
-        "archivo": nombre_archivo,
-        "tipoPoliza": extraer_tipo_poliza(texto),
-        "numeroPoliza": extraer_numero_poliza_qualitas(texto),
-        "nombreCliente": extraer_nombre_cliente(texto),
-        "direccion": extraer_direccion(texto),
-        "cp": extraer_cp(texto),
-        "municipio": extraer_municipio(texto),
-        "colonia": extraer_colonia(texto),
-        "rfcAsegurado": extraer_rfc_mas_repetido(texto),
-        "descripcionVehiculo": extraer_descripcion_vehiculo(texto),
-        "modelo": "",
-        "placas": extraer_placas(texto, paginas_dict),
-        "serie": extraer_serie(texto),
-        "motor": extraer_motor(texto),
-        "formaPago": extraer_forma_pago(texto),
-        "moneda": extraer_moneda(texto),
-        "primaNeta": extraer_prima_neta(texto),
-        "tasaFinanciamiento": extraer_tasa_financiamiento(texto),
-        "gastosExpedicion": extraer_gastos_expedicion(texto),
-        "subtotal": extraer_subtotal(texto),
-        "iva": extraer_iva(texto),
-        "primaTotal": extraer_prima_total(texto),
-        "inicioVigencia": vigencia.get("Inicio Vigencia", ""),
-        "finVigencia": vigencia.get("Fin Vigencia", ""),
-        "tipoVehiculo": extraer_tipo_vehiculo(texto),
-    }
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
 
 
 @app.post("/extraer_poliza_qualitas")
-async def extraer_poliza_qualitas(files: List[UploadFile] = File(...)):
-    resultados = []
+async def extraer_poliza_qualitas(file: UploadFile):
+    temp_file_path = None
+    try:
+        logger.info(f"Recibiendo archivo: {file.filename}")
 
-    for file in files:
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF")
+
         contenido = await file.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(contenido)
-            tmp_path = tmp.name
+        logger.info(f"Tamaño del archivo: {len(contenido)} bytes")
 
-        try:
-            resultado = procesar_pdf(tmp_path, file.filename or "sin_nombre.pdf")
-            resultados.append(resultado)
-        except Exception as e:
-            resultados.append({
-                "archivo": file.filename or "sin_nombre.pdf",
-                "mensaje": f"Error al procesar: {str(e)}",
-            })
-        finally:
-            os.unlink(tmp_path)
+        temp_file_path = os.path.join(tempfile.gettempdir(), "temp_qualitas.pdf")
+        with open(temp_file_path, "wb") as f:
+            f.write(contenido)
 
-    return {"success": True, "data": resultados}
+        logger.info("Leyendo PDF completo...")
+        texto, paginas_dict = leer_pdf_completo(temp_file_path)
+
+        if not texto:
+            raise HTTPException(status_code=400, detail="No se pudo extraer texto del PDF")
+
+        logger.info(f"Texto extraído: {len(texto)} caracteres")
+
+        if not es_poliza_auto_qualitas(texto):
+            return {"error": "El archivo no corresponde a una póliza de auto Qualitas."}
+
+        logger.info("Extrayendo información de la póliza...")
+        numero = extraer_numero_poliza_qualitas(texto)
+        vigencia = extraer_vigencia_por_frecuencia(texto)
+
+        informacion = {
+            "Tipo de Póliza": extraer_tipo_poliza(texto),
+            "Número de Póliza": numero,
+            "RFC del Asegurado": extraer_rfc_mas_repetido(texto),
+            "Inicio Vigencia": vigencia.get("Inicio Vigencia", "No encontrada"),
+            "Fin Vigencia": vigencia.get("Fin Vigencia", "No encontrada"),
+            "Prima Neta": extraer_prima_neta(texto),
+            "Tasa de Financiamiento": extraer_tasa_financiamiento(texto),
+            "Gastos de Expedición": extraer_gastos_expedicion(texto),
+            "Subtotal": extraer_subtotal(texto),
+            "I.V.A. 16%": extraer_iva(texto),
+            "Prima Total": extraer_prima_total(texto),
+            "Forma de Pago": extraer_forma_pago(texto),
+            "Moneda": extraer_moneda(texto),
+            "Motor": extraer_motor(texto),
+            "Serie": extraer_serie(texto),
+            "Placas": extraer_placas(texto, paginas_dict),
+            "C.P.": extraer_cp(texto),
+            "Dirección": extraer_direccion(texto),
+            "Tipo de Vehículo": extraer_tipo_vehiculo(texto),
+            "Descripción del Vehículo": extraer_descripcion_vehiculo(texto),
+            "Colonia": extraer_colonia(texto),
+            "Municipio": extraer_municipio(texto),
+            "Nombre o razon social del cliente": extraer_nombre_cliente(texto),
+        }
+
+        logger.info("Extracción completada exitosamente")
+        return informacion
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error procesando archivo: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error al procesar el archivo: {str(e)}")
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+                logger.info("Archivo temporal eliminado")
+            except:
+                pass
 
 
-@app.post("/exportar_excel")
-async def exportar_excel(files: List[UploadFile] = File(...)):
-    resultados = []
+@app.post("/extraer_poliza_gnp")
+async def extraer_poliza_gnp(file: UploadFile):
+    temp_file_path = None
+    try:
+        logger.info(f"Recibiendo archivo: {file.filename}")
 
-    for file in files:
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF")
+
         contenido = await file.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(contenido)
-            tmp_path = tmp.name
+        logger.info(f"Tamaño del archivo: {len(contenido)} bytes")
 
-        try:
-            resultado = procesar_pdf(tmp_path, file.filename or "sin_nombre.pdf")
-            resultados.append(resultado)
-        except Exception as e:
-            resultados.append({
-                "archivo": file.filename or "sin_nombre.pdf",
-                "mensaje": f"Error: {str(e)}",
-            })
-        finally:
-            os.unlink(tmp_path)
+        temp_file_path = os.path.join(tempfile.gettempdir(), "temp_gnp.pdf")
+        with open(temp_file_path, "wb") as f:
+            f.write(contenido)
 
-    validos = [r for r in resultados if "mensaje" not in r]
-    rechazados = [r for r in resultados if "mensaje" in r]
+        logger.info("Leyendo PDF completo...")
+        texto, paginas_dict = leer_pdf_gnp(temp_file_path)
 
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        if validos:
-            df = pd.DataFrame(validos)
-            df.to_excel(writer, sheet_name="Polizas", index=False)
-        if rechazados:
-            df_r = pd.DataFrame(rechazados)
-            df_r.to_excel(writer, sheet_name="Rechazadas", index=False)
-    output.seek(0)
+        if not texto:
+            raise HTTPException(status_code=400, detail="No se pudo extraer texto del PDF")
 
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=polizas_qualitas.xlsx"},
-    )
+        logger.info(f"Texto extraído: {len(texto)} caracteres")
+
+        if not es_poliza_auto_gnp(texto):
+            return {"error": "El archivo no corresponde a una póliza de auto GNP."}
+
+        logger.info("Extrayendo información de la póliza...")
+        vigencia = extraer_vigencia(texto, paginas_dict)
+
+        informacion = {
+            "Tipo de Póliza": gnp_tipo_poliza(texto, paginas_dict),
+            "Renovación": extraer_renovacion(texto, paginas_dict),
+            "Número de Póliza": extraer_numero_poliza(texto, paginas_dict),
+            "Nombre o razón social del cliente": gnp_nombre_cliente(texto, paginas_dict),
+            "RFC": extraer_rfc(texto, paginas_dict),
+            "Inicio Vigencia": vigencia.get("Inicio Vigencia", "No encontrada"),
+            "Fin Vigencia": vigencia.get("Fin Vigencia", "No encontrada"),
+            "Prima Neta": f"${gnp_prima_neta(texto, paginas_dict)}",
+            "Derecho de Póliza": f"${extraer_derecho_poliza(texto, paginas_dict)}",
+            "IVA": f"${gnp_iva(texto, paginas_dict)}",
+            "Importe por Pagar": f"${extraer_importe_pagar(texto, paginas_dict)}",
+            "Uso": extraer_uso(texto, paginas_dict),
+            "Recargo por Pago Fraccionado": f"${extraer_recargo_fraccionado(texto, paginas_dict)}",
+            "Descripción": extraer_descripcion(texto, paginas_dict),
+            "Serie": gnp_serie(texto, paginas_dict),
+            "Modelo": extraer_modelo(texto, paginas_dict),
+            "Placas": gnp_placas(texto, paginas_dict),
+            "Dirección": gnp_direccion(texto, paginas_dict),
+            "Clave del Agente": extraer_clave_agente(texto, paginas_dict),
+            "Nombre del Agente": extraer_nombre_agente(texto, paginas_dict),
+        }
+
+        logger.info("Extracción GNP completada exitosamente")
+        return informacion
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error procesando archivo GNP: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error al procesar el archivo: {str(e)}")
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+                logger.info("Archivo temporal GNP eliminado")
+            except:
+                pass
