@@ -85,17 +85,17 @@ def _encontrar_etiqueta(spans, etiqueta, desde_y=None, hasta_y=None, coincidenci
             continue
         texto_low = s["texto"].lower()
         if (coincidencia_exacta and texto_low == etiqueta_low) or \
-           (not coincidencia_exacta and etiqueta_low in texto_low):
+        (not coincidencia_exacta and etiqueta_low in texto_low):
             return s
     return None
 
 
 def _valor_por_posicion(spans, etiqueta_span, etiquetas_excluir=None,
-                         tolerancia_x=14, tolerancia_fila=3, max_distancia_y=45,
-                         permitir_misma_fila=True, permitir_columna_abajo=True):
+    tolerancia_x=14, tolerancia_fila=3, max_distancia_y=45,
+    permitir_misma_fila=True, permitir_columna_abajo=True):
     """Dado el span de una etiqueta, busca su valor asociado usando geometría:
-      - Prioriza un valor en la MISMA fila, a la derecha (mismo y, x mayor).
-      - Si no hay, busca un valor en la COLUMNA debajo (mismo x aprox, y mayor).
+    - Prioriza un valor en la MISMA fila, a la derecha (mismo y, x mayor).
+    - Si no hay, busca un valor en la COLUMNA debajo (mismo x aprox, y mayor).
     `etiquetas_excluir` evita devolver como "valor" el texto de otra etiqueta
     conocida de la misma tabla (ej. no confundir 'Placas' con valor de 'Modelo').
     """
@@ -128,8 +128,8 @@ def _valor_por_posicion(spans, etiqueta_span, etiquetas_excluir=None,
 
 
 def _valores_multilinea_por_posicion(spans, etiqueta_span, etiquetas_excluir=None,
-                                      tolerancia_x=14, max_distancia_y=90, max_lineas=4,
-                                      salto_maximo_entre_lineas=20):
+    tolerancia_x=14, max_distancia_y=90, max_lineas=4,
+    salto_maximo_entre_lineas=20):
     """Como _valor_por_posicion pero para campos que pueden ocupar varias
     líneas en la misma columna (ej. Dirección, Descripción del vehículo)."""
     if etiqueta_span is None:
@@ -333,7 +333,7 @@ def extraer_nombre_cliente(texto, paginas_dict):
     etiqueta = _encontrar_etiqueta(seccion, "Nombre", coincidencia_exacta=True)
     excluir = {"código de cliente", "r.f.c.", "dirección", "referencia"}
     valor = _valor_por_posicion(seccion, etiqueta, etiquetas_excluir=excluir,
-                                 tolerancia_x=20, permitir_misma_fila=False, max_distancia_y=90)
+    tolerancia_x=20, permitir_misma_fila=False, max_distancia_y=90)
     if valor and len(valor) > 4:
         return valor
 
@@ -389,7 +389,7 @@ def extraer_direccion(texto, paginas_dict):
     etiqueta = _encontrar_etiqueta(seccion, "Dirección", coincidencia_exacta=True)
     excluir = {"código de cliente", "nombre", "r.f.c.", "referencia"}
     valor = _valores_multilinea_por_posicion(seccion, etiqueta, etiquetas_excluir=excluir,
-                                              tolerancia_x=20, max_distancia_y=90, max_lineas=3)
+    tolerancia_x=20, max_distancia_y=90, max_lineas=3)
     if valor:
         return valor.strip()
 
@@ -485,7 +485,7 @@ def extraer_descripcion(texto, paginas_dict):
     etiqueta = _encontrar_etiqueta(seccion, "Descripción", coincidencia_exacta=True)
     excluir = {"categoría"}
     valor = _valores_multilinea_por_posicion(seccion, etiqueta, etiquetas_excluir=excluir,
-                                              tolerancia_x=10, max_distancia_y=40, max_lineas=3)
+    tolerancia_x=10, max_distancia_y=40, max_lineas=3)
     if valor:
         # corta si por error arrastró el inicio de "Serie..."
         valor = re.split(r'\bSerie\b', valor, flags=re.IGNORECASE)[0].strip()
@@ -519,7 +519,7 @@ def extraer_categoria(texto, paginas_dict):
     seccion = _spans_seccion_vehiculo(paginas_dict)
     etiqueta = _encontrar_etiqueta(seccion, "Categoría", coincidencia_exacta=True)
     valor = _valores_multilinea_por_posicion(seccion, etiqueta, etiquetas_excluir={"descripción"},
-                                              tolerancia_x=10, max_distancia_y=40, max_lineas=2)
+    tolerancia_x=10, max_distancia_y=40, max_lineas=2)
     return valor.strip()
 
 
@@ -545,7 +545,7 @@ def extraer_modelo(texto, paginas_dict):
     # algoritmo "salta" y termina agarrando el valor de la fila de abajo
     # (Uso), que no tiene nada que ver.
     valor = _valor_por_posicion(seccion, etiqueta, etiquetas_excluir={"placas", "motor"},
-                                 permitir_misma_fila=False, max_distancia_y=18)
+    permitir_misma_fila=False, max_distancia_y=18)
     if re.match(r'^(19|20)\d{2}$', valor.strip()):
         return valor.strip()
 
@@ -572,7 +572,7 @@ def extraer_motor(texto, paginas_dict):
     seccion = _spans_seccion_vehiculo(paginas_dict)
     etiqueta = _encontrar_etiqueta(seccion, "Motor", coincidencia_exacta=True)
     valor = _valor_por_posicion(seccion, etiqueta, etiquetas_excluir={"modelo", "placas"},
-                                 permitir_misma_fila=False, max_distancia_y=18)
+    permitir_misma_fila=False, max_distancia_y=18)
     return valor.strip()
 
 
@@ -612,7 +612,7 @@ def extraer_placas(texto, paginas_dict):
     seccion = _spans_seccion_vehiculo(paginas_dict)
     etiqueta = _encontrar_etiqueta(seccion, "Placas", coincidencia_exacta=True)
     valor = _valor_por_posicion(seccion, etiqueta, etiquetas_excluir={"modelo", "motor"},
-                                 permitir_misma_fila=False, max_distancia_y=18)
+    permitir_misma_fila=False, max_distancia_y=18)
 
     if not valor:
         valor = _extraer_placas_legacy(texto, paginas_dict)
@@ -722,12 +722,12 @@ def _spans_seccion_agente(paginas_dict):
     del contenido de la página en esa lista, lo que además puede chocar
     con la etiqueta de columna 'Agente' (con minúsculas) si se compara
     sin distinguir mayúsculas. Por eso aquí:
-      1) Ubicamos el título 'AGENTE' comparando el texto tal cual (no en
-         minúsculas), para no confundirlo con la columna 'Agente'.
-      2) Acotamos la región de búsqueda a una franja angosta de Y justo
-         debajo del título (donde está la tabla Clave/Agente/Fecha), en
-         vez de devolver toda la página -- así se evita que cualquier
-         texto del cuerpo legal (que puede compartir palabras) interfiera.
+    1) Ubicamos el título 'AGENTE' comparando el texto tal cual (no en
+    minúsculas), para no confundirlo con la columna 'Agente'.
+    2) Acotamos la región de búsqueda a una franja angosta de Y justo
+    debajo del título (donde está la tabla Clave/Agente/Fecha), en
+    vez de devolver toda la página -- así se evita que cualquier
+    texto del cuerpo legal (que puede compartir palabras) interfiera.
     """
     for pagina in reversed(paginas_dict):
         spans = _spans_pagina(pagina)
@@ -742,7 +742,7 @@ def extraer_clave_agente(texto, paginas_dict):
     spans = _spans_seccion_agente(paginas_dict)
     etiqueta = _encontrar_etiqueta(spans, "Clave", coincidencia_exacta=True)
     valor = _valor_por_posicion(spans, etiqueta, etiquetas_excluir={"agente", "fecha de expedición"},
-                                 permitir_misma_fila=False)
+    permitir_misma_fila=False)
     if valor:
         return valor.strip()
 
@@ -763,7 +763,7 @@ def extraer_nombre_agente(texto, paginas_dict):
     spans = _spans_seccion_agente(paginas_dict)
     etiqueta = _encontrar_etiqueta(spans, "Agente", coincidencia_exacta=True)
     valor = _valor_por_posicion(spans, etiqueta, etiquetas_excluir={"clave", "fecha de expedición"},
-                                 permitir_misma_fila=False)
+    permitir_misma_fila=False)
     if valor and len(valor) > 5:
         return valor.strip()
 
@@ -785,7 +785,7 @@ def extraer_fecha_expedicion(texto, paginas_dict):
     spans = _spans_seccion_agente(paginas_dict)
     etiqueta = _encontrar_etiqueta(spans, "Fecha de Expedición", coincidencia_exacta=True)
     valor = _valor_por_posicion(spans, etiqueta, etiquetas_excluir={"clave", "agente"},
-                                 permitir_misma_fila=False)
+    permitir_misma_fila=False)
     if valor:
         return valor.strip()
     match = re.search(r'Fecha\s+de\s+Expedici[oó]n.*?\n.*?(\d{1,2}/\w{3}/\d{4})', texto, re.DOTALL | re.IGNORECASE)
